@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -59,10 +61,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.AppMode
 import com.example.ui.MainViewModel
+import com.example.ui.screens.AdminPlatformScreen
 import com.example.ui.screens.BlueprintHubScreen
 import com.example.ui.screens.CaptainScreen
 import com.example.ui.screens.CaptainWalletScreen
 import com.example.ui.screens.CustomerRideScreen
+import com.example.ui.screens.SadAiCopilotScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.SadAmberDark
 import com.example.ui.theme.SadAmberPrimary
@@ -70,17 +74,24 @@ import com.example.ui.theme.SadBlue
 import com.example.ui.theme.SadEmerald
 import com.example.ui.theme.SadMidnight
 import com.example.ui.theme.SadRed
+import com.example.util.configureAppCheck
 
 enum class NavDestination(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-  CUSTOMER("S.A.D Ride", Icons.Default.DirectionsCar),
-  CAPTAIN("S.A.D Captain", Icons.Default.SportsMotorsports),
+  CUSTOMER("Ride", Icons.Default.DirectionsCar),
+  CAPTAIN("Captain", Icons.Default.SportsMotorsports),
+  AI("S.A.D AI", Icons.Default.AutoAwesome),
   WALLET("Wallet", Icons.Default.AccountBalanceWallet),
-  BLUEPRINT("Blueprint", Icons.Default.Description),
+  ADMIN("Admin", Icons.Default.AdminPanelSettings),
+  BLUEPRINT("Guide", Icons.Default.Description),
 }
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+
+    // Mandated: Configure Firebase App Check with launch intent before any UI or Firebase operations
+    configureAppCheck(this, intent)
+
     enableEdgeToEdge()
     setContent {
       MyApplicationTheme {
@@ -96,6 +107,8 @@ fun SadRideAppRoot(viewModel: MainViewModel = viewModel()) {
   val statusBanner by viewModel.statusBannerMessage.collectAsState()
   val incomingOffer by viewModel.incomingRideOffer.collectAsState()
   val captain by viewModel.captain.collectAsState()
+  val allCaptains by viewModel.allCaptains.collectAsState()
+  val deficitCount = allCaptains.count { it.isWalletBlocked }
 
   // Handle Android system Back button
   BackHandler(enabled = currentDestination != NavDestination.CUSTOMER) {
@@ -150,7 +163,9 @@ fun SadRideAppRoot(viewModel: MainViewModel = viewModel()) {
                 text = when (currentDestination) {
                   NavDestination.CUSTOMER -> "S.A.D Ride • Customer App"
                   NavDestination.CAPTAIN -> "S.A.D Captain • Driver Partner"
+                  NavDestination.AI -> "S.A.D Saathi • Gemini AI Co-Pilot"
                   NavDestination.WALLET -> "Earnings & Digital Wallet"
+                  NavDestination.ADMIN -> "Admin Control Tower & Fleet"
                   NavDestination.BLUEPRINT -> "System Blueprint & Guide"
                 },
                 style = MaterialTheme.typography.titleSmall.copy(
@@ -226,6 +241,16 @@ fun SadRideAppRoot(viewModel: MainViewModel = viewModel()) {
                 ) {
                   Icon(imageVector = destination.icon, contentDescription = destination.label)
                 }
+              } else if (destination == NavDestination.ADMIN && deficitCount > 0) {
+                BadgedBox(
+                  badge = {
+                    Badge(containerColor = SadRed) {
+                      Text("$deficitCount", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                  }
+                ) {
+                  Icon(imageVector = destination.icon, contentDescription = destination.label)
+                }
               } else {
                 Icon(imageVector = destination.icon, contentDescription = destination.label)
               }
@@ -235,7 +260,7 @@ fun SadRideAppRoot(viewModel: MainViewModel = viewModel()) {
                 text = destination.label,
                 style = MaterialTheme.typography.labelSmall.copy(
                   fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                  fontSize = 10.sp
+                  fontSize = 8.5.sp
                 )
               )
             },
@@ -268,11 +293,17 @@ fun SadRideAppRoot(viewModel: MainViewModel = viewModel()) {
             onNavigateToWallet = { currentDestination = NavDestination.WALLET }
           )
         }
+        NavDestination.AI -> {
+          SadAiCopilotScreen(viewModel = viewModel)
+        }
         NavDestination.WALLET -> {
           CaptainWalletScreen(
             viewModel = viewModel,
             onBack = { currentDestination = NavDestination.CAPTAIN }
           )
+        }
+        NavDestination.ADMIN -> {
+          AdminPlatformScreen(viewModel = viewModel)
         }
         NavDestination.BLUEPRINT -> {
           BlueprintHubScreen()

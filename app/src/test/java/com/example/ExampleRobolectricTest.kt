@@ -3,6 +3,7 @@ package com.example
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.SadRideRepository
+import com.example.model.DriverKycStatus
 import com.example.model.FareBreakdown
 import com.example.model.VehicleCategory
 import org.junit.Assert.assertEquals
@@ -77,5 +78,25 @@ class ExampleRobolectricTest {
     repo.rechargeWallet(250.0)
     assertFalse(repo.captain.value.isWalletBlocked)
     assertTrue(repo.captain.value.walletBalance > 0)
+  }
+
+  @Test
+  fun `verify admin controls for commission and captain wallet credit`() {
+    val repo = SadRideRepository()
+
+    // 1. Admin updates commission to 12%
+    repo.adminUpdateCommission(12.0)
+    assertEquals(12.0, repo.platformConfig.value.commissionPercent, 0.01)
+
+    // 2. Admin adds ₹500 adjustment to a captain
+    val captainId = "CAP-7890"
+    val beforeBal = repo.captain.value.walletBalance
+    repo.adminAdjustCaptainWallet(captainId, 500.0, "Bonus Incentive")
+    assertEquals(beforeBal + 500.0, repo.captain.value.walletBalance, 0.01)
+
+    // 3. Admin suspends captain
+    repo.adminToggleCaptainKyc(captainId, DriverKycStatus.SUSPENDED)
+    assertEquals(DriverKycStatus.SUSPENDED, repo.captain.value.kycStatus)
+    assertTrue(repo.captain.value.isWalletBlocked)
   }
 }

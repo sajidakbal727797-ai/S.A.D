@@ -2,12 +2,16 @@ package com.example.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ai.AiResponseState
+import com.example.ai.SadRideAiService
 import com.example.data.LocationsData
 import com.example.data.SadRideRepository
 import com.example.model.CaptainProfile
+import com.example.model.DriverKycStatus
 import com.example.model.FareBreakdown
 import com.example.model.LocationPoint
 import com.example.model.PaymentMode
+import com.example.model.PlatformConfig
 import com.example.model.RideRecord
 import com.example.model.RideStatus
 import com.example.model.VehicleCategory
@@ -23,11 +27,14 @@ import kotlinx.coroutines.launch
 enum class AppMode(val label: String, val subtitle: String) {
   CUSTOMER_RIDE("S.A.D Ride", "Customer App"),
   CAPTAIN_APP("S.A.D Captain", "Driver Partner App"),
+  ADMIN_PLATFORM("Admin", "S.A.D Control Tower"),
+  AI_COPILOT("S.A.D Saathi", "Gemini AI Co-Pilot"),
   BLUEPRINT_HUB("Blueprint", "No-Code & Schema Guide"),
 }
 
 class MainViewModel(
-  private val repository: SadRideRepository = SadRideRepository()
+  private val repository: SadRideRepository = SadRideRepository(),
+  private val aiService: SadRideAiService = SadRideAiService(),
 ) : ViewModel() {
 
   private val _activeMode = MutableStateFlow(AppMode.CUSTOMER_RIDE)
@@ -41,6 +48,21 @@ class MainViewModel(
   val captain: StateFlow<CaptainProfile> = repository.captain
   val transactions: StateFlow<List<WalletTransaction>> = repository.transactions
   val incomingRideOffer: StateFlow<RideRecord?> = repository.incomingRideOffer
+
+  // Admin Data Flows
+  val platformConfig: StateFlow<PlatformConfig> = repository.platformConfig
+  val allCaptains: StateFlow<List<CaptainProfile>> = repository.allCaptains
+  val allRides: StateFlow<List<RideRecord>> = repository.allRides
+
+  // Gemini AI Data Flows
+  private val _aiState = MutableStateFlow<AiResponseState>(AiResponseState.Idle)
+  val aiState: StateFlow<AiResponseState> = _aiState.asStateFlow()
+
+  private val _adminReportText = MutableStateFlow<String?>(null)
+  val adminReportText: StateFlow<String?> = _adminReportText.asStateFlow()
+
+  private val _isAdminReportLoading = MutableStateFlow(false)
+  val isAdminReportLoading: StateFlow<Boolean> = _isAdminReportLoading.asStateFlow()
 
   // UI state flags
   private val _showFareBreakdownDialog = MutableStateFlow(false)
@@ -57,7 +79,6 @@ class MainViewModel(
   val offerTimerSeconds: StateFlow<Int> = _offerTimerSeconds.asStateFlow()
 
   init {
-    // Watch incoming offers for auto-countdown
     viewModelScope.launch {
       incomingRideOffer.collect { offer ->
         if (offer != null) {
@@ -119,7 +140,6 @@ class MainViewModel(
     val ride = repository.bookRide()
     _statusBannerMessage.value = "Searching for nearby S.A.D Captains... OTP: ${ride.otp}"
 
-    // Simulate captain accepting after 3.5 seconds if captain doesn't manually accept
     viewModelScope.launch {
       delay(3500)
       if (repository.currentRide.value?.status == RideStatus.SEARCHING_CAPTAIN) {
@@ -156,7 +176,7 @@ class MainViewModel(
     if (completed != null) {
       val fare = completed.fare
       val commission = fare.commissionAmount.toInt()
-      _statusBannerMessage.value = "Trip Completed! Total Fare ₹${fare.totalFare.toInt()} collected in Cash. 10% S.A.D Commission (-₹$commission) deducted from Wallet."
+      _statusBannerMessage.value = "Trip Completed! Total Fare ₹${fare.totalFare.toInt()} collected in Cash. ${fare.commissionRatePercent.toInt()}% S.A.D Commission (-₹$commission) deducted from Wallet."
     }
   }
 
@@ -168,7 +188,7 @@ class MainViewModel(
   fun toggleCaptainOnline(): Boolean {
     val success = repository.toggleCaptainOnlineStatus()
     if (!success) {
-      _statusBannerMessage.value = "Cannot Go Online! Wallet balance is below negative limit (-₹150). Please recharge wallet."
+      _statusBannerMessage.value = "Cannot Go Online! Wallet balance is below negative limit (${repository.platformConfig.value.negativeLimit.toInt()}). Please recharge wallet."
     } else {
       val isNowOnline = repository.captain.value.isOnline
       _statusBannerMessage.value = if (isNowOnline) "Captain is now ONLINE & ready for rides!" else "Captain is OFFLINE."
@@ -179,7 +199,7 @@ class MainViewModel(
   fun rechargeCaptainWallet(amount: Double) {
     val newBal = repository.rechargeWallet(amount, "Razorpay UPI")
     _showRechargeDialog.value = false
-    _statusBannerMessage.value = "Wallet Recharged! +₹${amount.toInt()} added. New Balance: ₹${newBal.toInt()}. Account is in Good Standing."
+    _statusBannerMessage.value = "Wallet Recharged! +₹${amount.toInt()} added. New Balance: ₹${newBal.toInt()}."
   }
 
   fun triggerSimulatedNegativeBalance() {
@@ -193,5 +213,65 @@ class MainViewModel(
 
   fun getDistanceKm(): Double {
     return repository.getCurrentDistance()
+  }
+
+  // --- GEMINI AI ASSISTANT ACTIONS ---
+
+  fun askAiCopilot(prompt: String) {
+    viewModelScope.launch {
+      aiService.askAssistant(prompt).collect { state ->
+        _aiState.value = state
+      }
+    }
+  }
+
+  fun clearAiResponse() {
+    _aiState.value = AiResponseState.Idle
+  }
+
+  fun generateAdminAiReport() {
+    viewModelScope.launch {
+      _isAdminReportLoading.value = true
+      try {
+        val totalGmv = allRides.value.sumOf { it.fare.totalFare } + 3840.0
+        val totalCommission = allRides.value.sumOf { it.fare.commissionAmount } + 384.0
+        val activeCount = allCaptains.value.count { it.isOnline }
+        val deficitCount = allCaptains.value.count { it.isWalletBlocked }
+
+        val report = aiService.generateFleetReport(
+          totalGmv = totalGmv,
+          totalCommission = totalCommission,
+          activeCaptainsCount = activeCount,
+          deficitCaptainsCount = deficitCount,
+        )
+        _adminReportText.value = report
+      } catch (e: Exception) {
+        _statusBannerMessage.value = "AI Report failed: ${e.localizedMessage}"
+      } finally {
+        _isAdminReportLoading.value = false
+      }
+    }
+  }
+
+  // --- ADMIN ACTIONS ---
+
+  fun adminUpdateCommission(percent: Double) {
+    repository.adminUpdateCommission(percent)
+    _statusBannerMessage.value = "Admin: Commission rate set to ${percent.toInt()}% for all future rides."
+  }
+
+  fun adminUpdateNegativeLimit(limit: Double) {
+    repository.adminUpdateNegativeLimit(limit)
+    _statusBannerMessage.value = "Admin: Captain negative deficit limit set to ₹${limit.toInt()}."
+  }
+
+  fun adminAdjustCaptainWallet(captainId: String, amount: Double, note: String) {
+    repository.adminAdjustCaptainWallet(captainId, amount, note)
+    _statusBannerMessage.value = "Admin: Added ₹${amount.toInt()} adjustment to Captain ($captainId)."
+  }
+
+  fun adminToggleCaptainKyc(captainId: String, newStatus: DriverKycStatus) {
+    repository.adminToggleCaptainKyc(captainId, newStatus)
+    _statusBannerMessage.value = "Admin: Captain ($captainId) status updated to ${newStatus.name}."
   }
 }

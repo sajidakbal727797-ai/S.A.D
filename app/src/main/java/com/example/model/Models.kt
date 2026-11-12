@@ -60,8 +60,13 @@ data class FareBreakdown(
   val driverEarnings: Double,   // 90% goes to Captain
 ) {
   companion object {
-    fun calculate(category: VehicleCategory, distanceKm: Double): FareBreakdown {
-      val base = category.baseFare
+    fun calculate(
+      category: VehicleCategory,
+      distanceKm: Double,
+      commissionPercent: Double = 10.0,
+      customBaseFare: Double? = null
+    ): FareBreakdown {
+      val base = customBaseFare ?: category.baseFare
       val distCharge = distanceKm * category.perKmRate
       val estMins = ((distanceKm / category.avgSpeedKmh) * 60).toInt().coerceAtLeast(4)
       val timeCharge = estMins * category.perMinRate
@@ -70,7 +75,7 @@ data class FareBreakdown(
       val gstTax = (subtotal * 0.05).coerceAtLeast(2.0)
       val rawTotal = subtotal + gstTax
       val roundedTotal = kotlin.math.round(rawTotal)
-      val commission = kotlin.math.round(roundedTotal * 0.10) // exactly 10%
+      val commission = kotlin.math.round(roundedTotal * (commissionPercent / 100.0))
       val driverShare = roundedTotal - commission
 
       return FareBreakdown(
@@ -82,7 +87,7 @@ data class FareBreakdown(
         platformFee = platformFee,
         gstTax = gstTax,
         totalFare = roundedTotal,
-        commissionRatePercent = 10.0,
+        commissionRatePercent = commissionPercent,
         commissionAmount = commission,
         driverEarnings = driverShare,
       )
@@ -135,6 +140,12 @@ data class WalletTransaction(
   val balanceAfter: Double,
 )
 
+enum class DriverKycStatus {
+  VERIFIED_ACTIVE,
+  PENDING_REVIEW,
+  SUSPENDED,
+}
+
 data class CaptainProfile(
   val id: String = "CAP-1002",
   val name: String = "Mohd. Sajid",
@@ -146,10 +157,21 @@ data class CaptainProfile(
   val walletBalance: Double = 350.0,
   val negativeLimit: Double = -150.0,
   val isOnline: Boolean = true,
+  val kycStatus: DriverKycStatus = DriverKycStatus.VERIFIED_ACTIVE,
   val totalTripsToday: Int = 8,
   val todayGrossEarnings: Double = 1420.0,
   val todayCommissionPaid: Double = 142.0,
 ) {
   val isWalletBlocked: Boolean
-    get() = walletBalance < negativeLimit
+    get() = walletBalance < negativeLimit || kycStatus == DriverKycStatus.SUSPENDED
 }
+
+data class PlatformConfig(
+  val commissionPercent: Double = 10.0,
+  val negativeLimit: Double = -150.0,
+  val bikeBaseFare: Double = 20.0,
+  val autoBaseFare: Double = 30.0,
+  val cabBaseFare: Double = 60.0,
+  val gstPercent: Double = 5.0,
+  val platformFee: Double = 5.0,
+)
