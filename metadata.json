@@ -1,0 +1,6 @@
+{
+  "name": "S.A.D Ride",
+  "description": "S.A.D Ride & S.A.D Captain: Bike, Auto, and Cab booking app with live simulation, driver wallet & 10% commission deduction system, fare breakdown, and complete technical blueprint.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
